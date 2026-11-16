@@ -43,7 +43,8 @@ MGBA_BUILD="$DEPS/mgba/build-android-$ABI"
 cmake -S "$DEPS/mgba" -B "$MGBA_BUILD" -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
 	-DANDROID_ABI=$ABI -DANDROID_PLATFORM=android-$API "${MGBA_OPTS[@]}" \
 	-DCMAKE_C_FLAGS="$CPU_FLAGS"
-cmake --build "$MGBA_BUILD" -j"$(nproc)" --target mgba zlibstatic
+NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+cmake --build "$MGBA_BUILD" -j"$NPROC" --target mgba zlibstatic
 
 # --- APK ---------------------------------------------------------------------
 # licences, inside the APK (assets/licenses): mGBA is statically linked (MPL-2.0), SDL2 is zlib-licensed

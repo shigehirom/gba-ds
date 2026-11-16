@@ -1,5 +1,11 @@
 # GBA DS
 
+> **Fork note (Single-screen portrait + 8BitDo FlipPad / BPPJ support):**
+> - **Portrait single-screen mode**: Added support for single-screen Android devices in portrait orientation (`GbaDsActivity` / `AndroidManifest.xml`). Both screens are stacked vertically in the upper area (`span-v`) while reserving the lower area (`bottomSlot`) for clip-on controllers such as the **8BitDo FlipPad** (and future on-screen controls).
+> - **Pokémon Pinball: Ruby & Sapphire (Japan, `BPPJ`)**: Added `BPPJ` profile and dump entry (`0x8af1ec73`).
+>
+> （縦長一画面のAndroid端末向けに、画面上部へ2画面を上下配置し、下部を **8BitDo FlipPad** 等の装着スペースとして空ける対応と、『ポケモンピンボール ルビー＆サファイア』日本版 `BPPJ` への対応を追加したフォークです。）
+
 <p align="center"><img src="docs/lineup.png" width="100%" alt="GBA DS on three dual-screen handhelds: Metroid: Zero Mission with its map on a DS-style handheld, Pokémon Pinball's table across both screens of one with a wide top screen, and Golden Sun with its menu on another"></p>
 
 A Game Boy Advance emulator for dual-screen handhelds (built for the Anbernic RG DS Plus, on ROCKNIX and on Android with GammaOS). The game runs on one screen, and the game's own map stays up on the other screen and keeps itself current as you explore, the way the DS Castlevanias work.

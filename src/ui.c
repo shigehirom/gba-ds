@@ -1068,6 +1068,9 @@ bool ui_events(void) {
 		case SDL_WINDOWEVENT:
 			if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || ev.window.event == SDL_WINDOWEVENT_RESIZED) {
 				ui_layout();
+#ifdef __ANDROID__
+				retained_invalidate();
+#endif
 			}
 			break;
 		case SDL_JOYHATMOTION:
@@ -1108,7 +1111,7 @@ bool ui_events(void) {
 		}
 		case SDL_FINGERDOWN:
 		case SDL_FINGERUP:
-		case SDL_FINGERMOTION:
+		case SDL_FINGERMOTION: {
 #if defined(__linux__) && !defined(__ANDROID__) && !defined(__wasi__)
 			if (evTouchFd >= 0) break; /* (touch_device: read there) */
 #endif
@@ -1121,6 +1124,7 @@ bool ui_events(void) {
 			queue_pointer(ev.type == SDL_FINGERDOWN ? 1 : ev.type == SDL_FINGERUP ? 2 : 3,
 			              view_of_window(ev.tfinger.windowID), ev.tfinger.x, ev.tfinger.y, true);
 			break;
+		}
 		case SDL_MOUSEBUTTONDOWN:
 		case SDL_MOUSEBUTTONUP: {
 			static int clicksLogged;

@@ -9,6 +9,8 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInstaller;
+import android.graphics.Color;
+import android.graphics.Insets;
 import android.graphics.Point;
 import android.hardware.display.DisplayManager;
 import android.net.Uri;
@@ -23,10 +25,16 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Display;
+import android.view.DisplayCutout;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
 
 import org.libsdl.app.SDLActivity;
 
@@ -48,6 +56,10 @@ import java.io.OutputStream;
 public class GbaDsActivity extends SDLActivity {
     private static final String TAG = "GBADS";
     private SecondScreen second;
+    private FrameLayout bottomSlot;
+    private int lastSurfW = -1, lastSurfH = -1, lastSurfX = -1, lastSurfY = -1;
+    private int lastBotW = -1, lastBotH = -1, lastBotX = -1, lastBotY = -1;
+    private boolean lastBotVisible;
 
     /** The game activity in this process, if one is running (this class or
      * {@link GbaDsHereActivity}): the launcher sends a new request to it,
@@ -79,10 +91,24 @@ public class GbaDsActivity extends SDLActivity {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         LauncherActivity.launchLog(this, mBrokenLibraries ? "native libraries didn't load (SDL shows why)" : "native libraries loaded");
-        if (!mBrokenLibraries) openSecondScreen();
+        if (!mBrokenLibraries) {
+            openSecondScreen();
+            setupPortraitLayout();
+        }
         IntentFilter f = new IntentFilter(INSTALL_STATUS);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(installStatus, f, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(installStatus, f);
+    }
+
+    @Override
+    public void setOrientationBis(int w, int h, boolean resizable, String hint) {
+        /* If only one physical display is present, allow user rotation so the layout can switch
+         * between landscape and portrait. With a dual-screen device (second != null), keep landscape. */
+        if (second == null) {
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER);
+            return;
+        }
+        super.setOrientationBis(w, h, resizable, hint);
     }
 
     /**
@@ -235,6 +261,106 @@ public class GbaDsActivity extends SDLActivity {
             SecondScreen.nativeSetDisplay(0, 0);
             second = null;
         }
+    }
+
+    /**
+     * Portrait single-screen layout: keeps SDL's surface in the upper area
+     * (where ui.c's span-v stacks both GBA DS screens) and reserves the bottom
+     * area (bottomSlot) for a clip-on controller such as 8BitDo FlipPad or
+     * future on-screen controls.
+     */
+    private void setupPortraitLayout() {
+        if (mLayout == null || mSurface == null) return;
+        mLayout.setBackgroundColor(Color.BLACK);
+        bottomSlot = new FrameLayout(this);
+        bottomSlot.setBackgroundColor(Color.BLACK);
+        bottomSlot.setVisibility(View.GONE);
+        mLayout.addView(bottomSlot, new ViewGroup.MarginLayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0));
+        mLayout.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
+                mLayout.post(this::updatePortraitLayout));
+        mLayout.setOnApplyWindowInsetsListener((v, insets) -> {
+            mLayout.post(this::updatePortraitLayout);
+            return insets;
+        });
+        mLayout.post(this::updatePortraitLayout);
+    }
+
+    private void updatePortraitLayout() {
+        if (mLayout == null || mSurface == null || bottomSlot == null) return;
+        int totalW = mLayout.getWidth();
+        int totalH = mLayout.getHeight();
+        if (totalW <= 0 || totalH <= 0) return;
+
+        boolean portraitSingle = second == null && totalH > totalW;
+        if (!portraitSingle) {
+            applyRect(mSurface, 0, 0, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, true);
+            if (lastBotVisible) {
+                bottomSlot.setVisibility(View.GONE);
+                lastBotVisible = false;
+            }
+            return;
+        }
+
+        int insetL = 0, insetT = 0, insetR = 0, insetB = 0;
+        WindowInsets wi = mLayout.getRootWindowInsets();
+        if (wi != null) {
+            if (Build.VERSION.SDK_INT >= 30) {
+                Insets ins = wi.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                insetL = ins.left;
+                insetT = ins.top;
+                insetR = ins.right;
+                insetB = ins.bottom;
+            } else {
+                insetL = wi.getSystemWindowInsetLeft();
+                insetT = wi.getSystemWindowInsetTop();
+                insetR = wi.getSystemWindowInsetRight();
+                insetB = wi.getSystemWindowInsetBottom();
+                if (Build.VERSION.SDK_INT >= 28) {
+                    DisplayCutout dc = wi.getDisplayCutout();
+                    if (dc != null) {
+                        insetL = Math.max(insetL, dc.getSafeInsetLeft());
+                        insetT = Math.max(insetT, dc.getSafeInsetTop());
+                        insetR = Math.max(insetR, dc.getSafeInsetRight());
+                        insetB = Math.max(insetB, dc.getSafeInsetBottom());
+                    }
+                }
+            }
+        }
+
+        int availW = Math.max(1, totalW - insetL - insetR);
+        int availH = Math.max(1, totalH - insetT - insetB);
+        /* Reserve at least 30% of the usable height for the lower controller/overlay slot;
+         * above that, cap the SDL surface at 3:4 (two stacked 3:2 GBA screens). */
+        int minBottomH = (int) (availH * 0.30f);
+        int idealGameH = availW * 4 / 3;
+        int gameH = Math.min(idealGameH, Math.max(1, availH - minBottomH));
+        int botH = Math.max(0, availH - gameH);
+
+        applyRect(mSurface, insetL, insetT, availW, gameH, true);
+        applyRect(bottomSlot, insetL, insetT + gameH, availW, botH, false);
+        if (!lastBotVisible) {
+            bottomSlot.setVisibility(View.VISIBLE);
+            lastBotVisible = true;
+        }
+    }
+
+    private void applyRect(View v, int x, int y, int w, int h, boolean isSurf) {
+        if (isSurf) {
+            if (lastSurfX == x && lastSurfY == y && lastSurfW == w && lastSurfH == h) return;
+            lastSurfX = x; lastSurfY = y; lastSurfW = w; lastSurfH = h;
+        } else {
+            if (lastBotX == x && lastBotY == y && lastBotW == w && lastBotH == h) return;
+            lastBotX = x; lastBotY = y; lastBotW = w; lastBotH = h;
+        }
+        ViewGroup.LayoutParams raw = v.getLayoutParams();
+        ViewGroup.MarginLayoutParams lp = raw instanceof ViewGroup.MarginLayoutParams
+                ? (ViewGroup.MarginLayoutParams) raw
+                : new ViewGroup.MarginLayoutParams(w, h);
+        lp.width = w;
+        lp.height = h;
+        lp.setMargins(x, y, 0, 0);
+        v.setLayoutParams(lp);
     }
 
     /* ------------------------------------------------------------ ROM folder picker */
